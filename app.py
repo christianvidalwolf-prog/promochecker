@@ -129,6 +129,29 @@ if is_cloud:
 else:
     headless = st.sidebar.checkbox("Modo Oculto (Headless)", value=False, help="Si se desactiva, verás el navegador abriéndose y navegando.")
 
+# Marketplace Selector
+st.sidebar.subheader("🌍 Seleccionar Marketplace")
+marketplace_options = {
+    "🇩🇪 Alemania (amazon.de)": "de",
+    "🇪🇸 España (amazon.es)": "es",
+    "🇫🇷 Francia (amazon.fr)": "fr",
+    "🇮🇹 Italia (amazon.it)": "it",
+    "🇬🇧 Reino Unido (amazon.co.uk)": "co.uk",
+    "🇺🇸 Estados Unidos (amazon.com)": "com",
+    "🇨🇦 Canadá (amazon.ca)": "ca",
+    "🇯🇵 Japón (amazon.co.jp)": "co.jp",
+    "🇲🇽 México (amazon.com.mx)": "com.mx"
+}
+
+selected_marketplace = st.sidebar.selectbox(
+    "Selecciona el mercado de Amazon:",
+    options=list(marketplace_options.keys()),
+    index=0,  # Default to Germany
+    help="El marketplace se usará para generar URLs cuando se detecten ASINs"
+)
+
+# Get the domain suffix
+marketplace_domain = marketplace_options[selected_marketplace]
 
 uploaded_file = st.file_uploader("Cargar archivo Excel (.xlsx) o CSV (.csv)", type=["xlsx", "csv"])
 
@@ -144,8 +167,8 @@ if uploaded_file:
         
         # Validation and Transformation
         if "URL" not in df.columns and "ASIN" in df.columns:
-            st.info("ℹ️ Se detectó columna 'ASIN'. Generando URLs para Amazon.de...")
-            df["URL"] = df["ASIN"].apply(lambda x: f"https://www.amazon.de/dp/{str(x).strip()}")
+            st.info(f"ℹ️ Se detectó columna 'ASIN'. Generando URLs para Amazon {marketplace_domain}...")
+            df["URL"] = df["ASIN"].apply(lambda x: f"https://www.amazon.{marketplace_domain}/dp/{str(x).strip()}")
 
         if "URL" not in df.columns:
             st.error("❌ El archivo NO tiene una columna llamada 'URL' ni 'ASIN'. Por favor corrige el archivo.")

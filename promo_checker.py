@@ -135,6 +135,8 @@ async def check_promotion(page, url):
                         details.append(f"Etiqueta: {clean_text[:50]}...")
 
         # --- 2. Check for Discount (Price strike-through or percentage off) ---
+        normal_price = "N/A"
+        discount_label = "N/A"
         
         # Method A: Savings Percentage (Explicit XX% off)
         savings_selectors = [
@@ -149,7 +151,8 @@ async def check_promotion(page, url):
                 savings_text = await savings_el.text_content()
                 if savings_text:
                     promo_detected = True
-                    details.append(f"Descuento explícito: {savings_text.strip()}")
+                    discount_label = savings_text.strip()
+                    details.append(f"Descuento explícito: {discount_label}")
         
         # Method B: Strike-through price structure (Precio anterior vs Actual)
         # Search in core price block
@@ -166,18 +169,19 @@ async def check_promotion(page, url):
                  basis_text = await basis_el.text_content()
                  if basis_text and basis_text.strip() != current_price: # Ensure it's different from current price
                     promo_detected = True
-                    details.append(f"Precio tachado (Anterior): {basis_text.strip()}")
+                    normal_price = basis_text.strip()
+                    details.append(f"Precio tachado (Anterior): {normal_price}")
 
         unique_details = "; ".join(sorted(list(set(details))))
         
         if promo_detected:
-            return "ACTIVO", unique_details, current_price
+            return "ACTIVO", unique_details, current_price, normal_price, discount_label
         else:
-            return "SIN PROMOCIÓN", "No se detectaron etiquetas ni descuentos visibles", current_price
+            return "SIN PROMOCIÓN", "No se detectaron etiquetas ni descuentos visibles", current_price, normal_price, discount_label
 
     except Exception as e:
         print(f"Error checking {url}: {e}")
-        return "Error/Exception", str(e), "Error"
+        return "Error/Exception", str(e), "Error", "Error", "Error"
 
 async def process_products(df, progress_callback=None, headless=True):
     """
@@ -190,6 +194,8 @@ async def process_products(df, progress_callback=None, headless=True):
     estados = []
     detalles_list = []
     precios_actuales = []
+    precios_normales = []
+    descuentos_labels = []
     
     total = len(df)
     
@@ -205,10 +211,13 @@ async def process_products(df, progress_callback=None, headless=True):
             if progress_callback:
                 progress_callback((index) / total)
             
-            status, details, price = await check_promotion(page, url)
+            status, details, price, norm_price, disc_label = await check_promotion(page, url)
+            
             estados.append(status)
             detalles_list.append(details)
             precios_actuales.append(price)
+            precios_normales.append(norm_price)
+            descuentos_labels.append(disc_label)
             
             # Random delay
             if index < total - 1:
@@ -220,6 +229,8 @@ async def process_products(df, progress_callback=None, headless=True):
     df["Estado Promoción"] = estados
     df["Detalles"] = detalles_list
     df["Precio Actual"] = precios_actuales
+    df["Precio Normal"] = precios_normales
+    df["Descuento"] = descuentos_labels
     
     # Final progress update
     if progress_callback:

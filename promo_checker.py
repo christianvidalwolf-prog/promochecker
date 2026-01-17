@@ -41,7 +41,7 @@ USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36
 async def check_promotion(page, url):
     """
     Navigates to the URL and checks for promotions or discounts.
-    Returns a tuple (status, details, current_price).
+    Returns a tuple (status, details, current_price, normal_price, discount_label).
     """
     try:
         print(f"Checking URL: {url}")
@@ -57,7 +57,7 @@ async def check_promotion(page, url):
             except Exception as e:
                 print(f"Attempt {attempt+1} failed for {url}: {e}")
                 if attempt == max_retries - 1:
-                    return "Error/Timeout", "Tiempo de espera agotado al cargar (60s)", "N/A"
+                    return "Error/Timeout", "Timeout loading page (60s)", "N/A", "N/A", "N/A"
                 await asyncio.sleep(2) # Short wait before retry
         
         # Simulate human behavior
@@ -66,12 +66,12 @@ async def check_promotion(page, url):
         # Check for CAPTCHA title
         title = await page.title()
         if "CAPTCHA" in title or "Robot Check" in title:
-            return "Error/Captcha", "Amazon detectó tráfico inusual", "N/A"
+            return "Error/Captcha", "Amazon detected unusual traffic", "N/A", "N/A", "N/A"
 
         promo_detected = False
         details = []
-        current_price = "No encontrado"
-
+        current_price = "Not Found" # Translated
+        
         # --- 0. EXTRACT CURRENT PRICE ---
         price_selectors = [
             "#corePrice_feature_div .a-price .a-offscreen",
@@ -88,8 +88,8 @@ async def check_promotion(page, url):
                 if price_text:
                     current_price = price_text.strip()
                     break 
-
-        # --- 1. Check for deal badges (Etiquetas y Ofertas) ---
+        
+        # --- 1. Check for deal badges ---
         deal_selectors = [
             # Generic Badges
             ".badge-text", 
@@ -101,7 +101,8 @@ async def check_promotion(page, url):
             "#coupon-badge",
             ".vpc-coupon-label",
             "label:has-text('Apply coupon')",
-            "label:has-text('Aplicar cupón')",
+            "label:has-text('Aplicar cupón')", # Keep Spanish too
+            "label:has-text('Apply voucher')",
             
             # Limited time deals
             "#lightning-deal-timer",
@@ -126,13 +127,13 @@ async def check_promotion(page, url):
                     # Specific check for Amazon's Choice which might have empty text in container
                     if "acBadge" in selector or "ac-badge" in selector:
                          promo_detected = True
-                         details.append("Amazon's Choice detectado")
+                         details.append("Amazon's Choice detected")
                     elif "bestSeller" in selector:
                          promo_detected = True
-                         details.append("Más vendido detectado")
+                         details.append("Best Seller detected")
                     elif clean_text:
                         promo_detected = True
-                        details.append(f"Etiqueta: {clean_text[:50]}...")
+                        details.append(f"Badge: {clean_text[:50]}...")
 
         # --- 2. Check for Discount (Price strike-through or percentage off) ---
         normal_price = "N/A"
@@ -152,9 +153,9 @@ async def check_promotion(page, url):
                 if savings_text:
                     promo_detected = True
                     discount_label = savings_text.strip()
-                    details.append(f"Descuento explícito: {discount_label}")
+                    details.append(f"Explicit Discount: {discount_label}")
         
-        # Method B: Strike-through price structure (Precio anterior vs Actual)
+        # Method B: Strike-through price structure (Previous vs Current)
         # Search in core price block
         core_price_div = await page.query_selector("#corePrice_feature_div")
         if core_price_div:
@@ -170,14 +171,14 @@ async def check_promotion(page, url):
                  if basis_text and basis_text.strip() != current_price: # Ensure it's different from current price
                     promo_detected = True
                     normal_price = basis_text.strip()
-                    details.append(f"Precio tachado (Anterior): {normal_price}")
+                    details.append(f"Strike-through Price (Old): {normal_price}")
 
         unique_details = "; ".join(sorted(list(set(details))))
         
         if promo_detected:
-            return "ACTIVO", unique_details, current_price, normal_price, discount_label
+            return "ACTIVE", unique_details, current_price, normal_price, discount_label
         else:
-            return "SIN PROMOCIÓN", "No se detectaron etiquetas ni descuentos visibles", current_price, normal_price, discount_label
+            return "NO PROMO", "No badges or visible discounts detected", current_price, normal_price, discount_label
 
     except Exception as e:
         print(f"Error checking {url}: {e}")
@@ -189,7 +190,7 @@ async def process_products(df, progress_callback=None, headless=True):
     Compatible with Streamlit app.
     """
     if "URL" not in df.columns:
-        raise ValueError("El dataframe debe tener una columna 'URL'")
+        raise ValueError("The dataframe must have a 'URL' column")
 
     estados = []
     detalles_list = []
@@ -226,11 +227,11 @@ async def process_products(df, progress_callback=None, headless=True):
                 
         await browser.close()
         
-    df["Estado Promoción"] = estados
-    df["Detalles"] = detalles_list
-    df["Precio Actual"] = precios_actuales
-    df["Precio Normal"] = precios_normales
-    df["Descuento"] = descuentos_labels
+    df["Promo Status"] = estados
+    df["Details"] = detalles_list
+    df["Current Price"] = precios_actuales
+    df["Normal Price"] = precios_normales
+    df["Discount"] = descuentos_labels
     
     # Final progress update
     if progress_callback:
@@ -240,24 +241,24 @@ async def process_products(df, progress_callback=None, headless=True):
 
 async def main():
     try:
-        print("Leyendo archivo de entrada...")
+        print("Reading input file...")
         df = pd.read_excel(INPUT_FILE)
         
-        print("Iniciando revisión...")
+        print("Starting check...")
         # Wrapper to print progress to console
         def console_progress(p):
-            print(f"Progreso: {p*100:.0f}%")
+            print(f"Progress: {p*100:.0f}%")
 
         df = await process_products(df, progress_callback=console_progress, headless=False)
 
-        print(f"Guardando reporte en {OUTPUT_FILE}...")
+        print(f"Saving report to {OUTPUT_FILE}...")
         df.to_excel(OUTPUT_FILE, index=False)
-        print("¡Proceso completado!")
+        print("Process completed!")
 
     except FileNotFoundError:
-        print(f"Error: No se encontró el archivo {INPUT_FILE}")
+        print(f"Error: File {INPUT_FILE} not found")
     except Exception as e:
-        print(f"Error fatal: {e}")
+        print(f"Fatal error: {e}")
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -110,50 +110,50 @@ st.markdown("""
 
 st.title("🛒 AMAZON PROMO CHECKER")
 st.markdown("""
-Esta aplicación verifica automáticamente si los productos de Amazon tienen promociones o descuentos activos.
-1. **Sube** tu archivo Excel (.xlsx) o CSV (.csv).
-2. **Configura** las opciones.
-3. **Descarga** el reporte con los resultados.
+This app automatically checks if Amazon products have active promotions or discounts.
+1. **Upload** your Excel (.xlsx) or CSV (.csv) file.
+2. **Configure** the settings.
+3. **Download** the report with the results.
 """)
 
 # Sidebar settings
-st.sidebar.header("Configuración")
+st.sidebar.header("Settings")
 
 # Auto-detect if we're running in a cloud environment (Streamlit Cloud has no display)
 import os
 is_cloud = os.path.exists('/home/appuser')  # Streamlit Cloud path
 
 if is_cloud:
-    st.sidebar.info("🌐 Ejecutando en la nube - Modo headless está activado automáticamente")
+    st.sidebar.info("🌐 Running on Cloud - Headless mode is automatically enabled")
     headless = True
 else:
-    headless = st.sidebar.checkbox("Modo Oculto (Headless)", value=False, help="Si se desactiva, verás el navegador abriéndose y navegando.")
+    headless = st.sidebar.checkbox("Headless Mode", value=False, help="If unchecked, you will see the browser opening and navigating.")
 
 # Marketplace Selector
-st.sidebar.subheader("🌍 Seleccionar Marketplace")
+st.sidebar.subheader("🌍 Select Marketplace")
 marketplace_options = {
-    "🇩🇪 Alemania (amazon.de)": "de",
-    "🇪🇸 España (amazon.es)": "es",
-    "🇫🇷 Francia (amazon.fr)": "fr",
-    "🇮🇹 Italia (amazon.it)": "it",
-    "🇬🇧 Reino Unido (amazon.co.uk)": "co.uk",
-    "🇺🇸 Estados Unidos (amazon.com)": "com",
-    "🇨🇦 Canadá (amazon.ca)": "ca",
-    "🇯🇵 Japón (amazon.co.jp)": "co.jp",
-    "🇲🇽 México (amazon.com.mx)": "com.mx"
+    "🇩🇪 Germany (amazon.de)": "de",
+    "🇪🇸 Spain (amazon.es)": "es",
+    "🇫🇷 France (amazon.fr)": "fr",
+    "🇮🇹 Italy (amazon.it)": "it",
+    "🇬🇧 United Kingdom (amazon.co.uk)": "co.uk",
+    "🇺🇸 United States (amazon.com)": "com",
+    "🇨🇦 Canada (amazon.ca)": "ca",
+    "🇯🇵 Japan (amazon.co.jp)": "co.jp",
+    "🇲🇽 Mexico (amazon.com.mx)": "com.mx"
 }
 
 selected_marketplace = st.sidebar.selectbox(
-    "Selecciona el mercado de Amazon:",
+    "Select Amazon Marketplace:",
     options=list(marketplace_options.keys()),
     index=0,  # Default to Germany
-    help="El marketplace se usará para generar URLs cuando se detecten ASINs"
+    help="The marketplace will be used to generate URLs when ASINs are detected"
 )
 
 # Get the domain suffix
 marketplace_domain = marketplace_options[selected_marketplace]
 
-uploaded_file = st.file_uploader("Cargar archivo Excel (.xlsx) o CSV (.csv)", type=["xlsx", "csv"])
+uploaded_file = st.file_uploader("Upload Excel (.xlsx) or CSV (.csv) file", type=["xlsx", "csv"])
 
 if uploaded_file:
     try:
@@ -167,33 +167,33 @@ if uploaded_file:
         
         # Validation and Transformation
         if "URL" not in df.columns and "ASIN" in df.columns:
-            st.info(f"ℹ️ Se detectó columna 'ASIN'. Generando URLs para Amazon {marketplace_domain}...")
+            st.info(f"ℹ️ 'ASIN' column detected. Generating URLs for Amazon {marketplace_domain}...")
             df["URL"] = df["ASIN"].apply(lambda x: f"https://www.amazon.{marketplace_domain}/dp/{str(x).strip()}")
 
         if "URL" not in df.columns:
-            st.error("❌ El archivo NO tiene una columna llamada 'URL' ni 'ASIN'. Por favor corrige el archivo.")
-            st.write("Columnas encontradas:", list(df.columns))
+            st.error("❌ The file does NOT have a 'URL' or 'ASIN' column. Please correct the file.")
+            st.write("Columns found:", list(df.columns))
         else:
-            st.subheader("Vista Previa")
+            st.subheader("Preview")
             st.dataframe(df.head())
-            st.info(f"Se encontraron {len(df)} productos para revisar.")
+            st.info(f"Found {len(df)} products to check.")
             
             # Initialize session state for results if not present
             if 'results' not in st.session_state:
                 st.session_state.results = None
 
             # Start Button
-            if st.button("🚀 Iniciar Revisión"):
+            if st.button("🚀 Start Check"):
                 progress_bar = st.progress(0)
                 status_text = st.empty()
-                status_text.text("Iniciando motores...")
+                status_text.text("Starting engines...")
                 
                 def update_progress(p):
                     progress_bar.progress(p)
-                    status_text.text(f"Procesando: {int(p*100)}%")
+                    status_text.text(f"Processing: {int(p*100)}%")
 
                 try:
-                    with st.spinner("Escaneando productos en Amazon..."):
+                    with st.spinner("Scanning Amazon products..."):
                         try:
                             loop = asyncio.get_event_loop()
                         except RuntimeError:
@@ -203,11 +203,11 @@ if uploaded_file:
                         result_df = loop.run_until_complete(process_products(df.copy(), progress_callback=update_progress, headless=headless))
                         st.session_state.results = result_df
                         
-                    st.success("✅ ¡Proceso completado!")
+                    st.success("✅ Process completed!")
                     st.balloons()
 
                 except Exception as e:
-                    st.error(f"Ocurrió un error: {e}")
+                    st.error(f"An error occurred: {e}")
                     import traceback
                     traceback.print_exc()
 
@@ -215,14 +215,15 @@ if uploaded_file:
             if st.session_state.results is not None:
                 df_res = st.session_state.results
                 
-                if "Estado Promoción" in df_res.columns:
-                    error_mask = df_res["Estado Promoción"].astype(str).str.contains("Error/Timeout")
+                # Update column name checks for English
+                if "Promo Status" in df_res.columns:
+                    error_mask = df_res["Promo Status"].astype(str).str.contains("Error/Timeout")
                     errors_count = error_mask.sum()
                     
                     if errors_count > 0:
-                        st.warning(f"⚠️ Se detectaron {errors_count} errores de tiempo de espera.")
-                        if st.button("🔄 Reintentar SOLO errores"):
-                            st.info("Reintentando URLs fallidas...")
+                        st.warning(f"⚠️ {errors_count} timeout errors detected.")
+                        if st.button("🔄 Retry Errors ONLY"):
+                            st.info("Retrying failed URLs...")
                             failed_df = df_res[error_mask].copy()
                             retry_progress = st.progress(0)
                             
@@ -238,36 +239,40 @@ if uploaded_file:
                                     
                                 fixed_df = loop.run_until_complete(process_products(failed_df, progress_callback=update_retry, headless=headless))
                                 st.session_state.results.update(fixed_df)
-                                st.success("✅ Reintento completado. Tabla actualizada.")
+                                st.success("✅ Retry completed. Table updated.")
                                 st.rerun() 
                                 
                             except Exception as e:
-                                st.error(f"Error al reintentar: {e}")
+                                st.error(f"Error checking retries: {e}")
 
             # Display Results if they exist
             if st.session_state.results is not None:
                 result_df = st.session_state.results
                 
-                st.subheader("Resultados")
+                st.subheader("Results")
                     
                 def highlight_status(val):
-                    color = 'green' if val == 'ACTIVO' else 'red' if 'Error' in str(val) else 'black'
+                    color = 'green' if val == 'ACTIVE' else 'red' if 'Error' in str(val) else 'black'
                     return f'color: {color}; font-weight: bold'
 
-                st.dataframe(
-                    result_df.style.map(highlight_status, subset=['Estado Promoción']),
-                    column_config={
-                        "URL": st.column_config.LinkColumn("Product Link")
-                    }
-                )
+                # Check if column exists (it might be spanish old results)
+                status_col = "Promo Status" if "Promo Status" in result_df.columns else "Estado Promoción"
+
+                if status_col in result_df.columns:
+                    st.dataframe(
+                        result_df.style.map(highlight_status, subset=[status_col]),
+                        column_config={
+                            "URL": st.column_config.LinkColumn("Product Link")
+                        }
+                    )
                     
                 # Download button with Hyperlinks (Excel)
                 output = BytesIO()
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    result_df.to_excel(writer, index=False, sheet_name='Reporte')
+                    result_df.to_excel(writer, index=False, sheet_name='Report')
                     
                     workbook = writer.book
-                    worksheet = writer.sheets['Reporte']
+                    worksheet = writer.sheets['Report']
                     
                     url_col_idx = None
                     for idx, col_name in enumerate(result_df.columns):
@@ -285,12 +290,12 @@ if uploaded_file:
                 output.seek(0)
                 
                 st.download_button(
-                    label="📥 Descargar Reporte Final",
+                    label="📥 Download Final Report",
                     data=output,
-                    file_name="reporte_promociones.xlsx",
+                    file_name="promo_report.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key='download-btn'
                 )
 
     except Exception as e:
-        st.error(f"Error al leer el archivo: {e}")
+        st.error(f"Error reading file: {e}")

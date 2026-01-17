@@ -135,43 +135,81 @@ async def check_promotion(page, url):
                         promo_detected = True
                         details.append(f"Badge: {clean_text[:50]}...")
 
-        # --- 2. Check for Discount (Price strike-through or percentage off) ---
+        # --- Helper: Price Cleaner ---
+        def parse_price(price_str):
+            if not price_str: return 0.0
+            try:
+                # Remove symbols, spaces, keep only digits and separators
+                # Supports 1.234,56 format (European) and 1,234.56 (US)
+                clean = price_str.replace("€", "").replace("$", "").replace("£", "").strip()
+                if "," in clean and "." in clean: # 1.234,56 or 1,234.56
+                    if clean.find(",") > clean.find("."): # 1.234,56 (EU)
+                        clean = clean.replace(".", "").replace(",", ".")
+                    else: # 1,234.56 (US)
+                        clean = clean.replace(",", "")
+                elif "," in clean: # 12,34 (EU)
+                    clean = clean.replace(",", ".")
+                return float(clean)
+            except:
+                return 0.0
+
+        current_price_val = parse_price(current_price)
+
+        # --- 2. Check for Discount & Values ---
         normal_price = "N/A"
         discount_label = "N/A"
         
-        # Method A: Savings Percentage (Explicit XX% off)
-        savings_selectors = [
-            ".savingsPercentage",
-            ".a-size-large.a-color-price.savingPriceOverride", # Sometimes used
-            "span[class*='savingsPercentage']"
-        ]
-        
-        for sel in savings_selectors:
-            savings_el = await page.query_selector(sel)
-            if savings_el and await savings_el.is_visible():
-                savings_text = await savings_el.text_content()
-                if savings_text:
-                    promo_detected = True
-                    discount_label = savings_text.strip()
-                    details.append(f"Explicit Discount: {discount_label}")
-        
-        # Method B: Strike-through price structure (Previous vs Current)
-        # Search in core price block
+        # A. Detect Percentage Loop (Smart Search)
+        # Look for any element containing "%" or "-" nearby price block
+        try:
+            potential_discounts = await page.query_selector_all("span:has-text('%'), div:has-text('%')")
+            for el in potential_discounts:
+                if await el.is_visible():
+                    text = await el.text_content()
+                    if text and ("%" in text) and ("-" in text or "off" in text.lower() or "menos" in text.lower()):
+                         if len(text.strip()) < 10: # Keep it short ("-25%")
+                            discount_label = text.strip()
+                            promo_detected = True
+                            details.append(f"Discount Found: {discount_label}")
+                            break
+        except:
+             pass
+
+        # Use specific selector fallback if smart search failed
+        if discount_label == "N/A":
+            savings_selectors = [
+                ".savingsPercentage",
+                ".savingPriceOverride",
+                "span[class*='savingsPercentage']"
+            ]
+            for sel in savings_selectors:
+                el = await page.query_selector(sel)
+                if el and await el.is_visible():
+                    text = await el.text_content()
+                    if text:
+                        discount_label = text.strip()
+                        promo_detected = True
+                        details.append(f"Explicit Discount: {discount_label}")
+                        break
+
+        # B. Check for Normal Price (Strike-Through) - NUMERIC COMPARISON APPROACH
         core_price_div = await page.query_selector("#corePrice_feature_div")
         if core_price_div:
-            # Look for strict strike-through data attribute
-            basis_el = await core_price_div.query_selector(".a-text-price[data-a-strike='true'] span[aria-hidden='true']")
+            # Get all price-like text elements in the price block
+            price_candidates = await core_price_div.query_selector_all(".a-text-price span[aria-hidden='true'], .a-text-price span.a-offscreen, span.a-price.a-text-price")
             
-            # Fallback: Check for any text-price that looks like a strike-through
-            if not basis_el:
-                 basis_el = await core_price_div.query_selector(".a-text-price span.a-offscreen")
-            
-            if basis_el:
-                 basis_text = await basis_el.text_content()
-                 if basis_text and basis_text.strip() != current_price: # Ensure it's different from current price
-                    promo_detected = True
-                    normal_price = basis_text.strip()
-                    details.append(f"Strike-through Price (Old): {normal_price}")
+            for el in price_candidates:
+                candidate_text = await el.text_content()
+                if candidate_text:
+                    candidate_clean = candidate_text.strip()
+                    candidate_val = parse_price(candidate_clean)
+                    
+                    # Logic: If we found a price that is greater than current price (with some margin)
+                    if candidate_val > current_price_val * 1.02: # at least 2% higher
+                        normal_price = candidate_clean
+                        promo_detected = True
+                        details.append(f"Strike-through Price (Old): {normal_price}")
+                        break # Found the higher price
 
         unique_details = "; ".join(sorted(list(set(details))))
         

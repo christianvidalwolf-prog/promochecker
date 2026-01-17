@@ -89,15 +89,30 @@ async def check_promotion(page, url):
                     current_price = price_text.strip()
                     break 
 
-        # --- 1. Check for deal badges ---
+        # --- 1. Check for deal badges (Etiquetas y Ofertas) ---
         deal_selectors = [
+            # Generic Badges
             ".badge-text", 
             "#dealBadge",
             ".a-badge-label", 
-            "#coupon-badge",
             ".promo-badge",
+            
+            # Coupons & vouchers
+            "#coupon-badge",
+            ".vpc-coupon-label",
+            "label:has-text('Apply coupon')",
+            "label:has-text('Aplicar cupón')",
+            
+            # Limited time deals
             "#lightning-deal-timer",
-            ".vpc-coupon-label"
+            ".dealPriceText",
+            
+            # Amazon's Choice & Best Seller
+            "#acBadge_feature_div",      # Amazon's Choice container
+            ".ac-badge-wrapper",          # Amazon's Choice wrapper
+            ".ac-keyword-link",           # "Amazon's Choice de..."
+            "#bestSellerBadge_feature_div", # Best Seller container
+            ".zg-badge-body",             # Best Seller body
         ]
         
         for selector in deal_selectors:
@@ -105,34 +120,53 @@ async def check_promotion(page, url):
             for el in elements:
                 if await el.is_visible():
                     text = await el.text_content()
-                    if text and text.strip():
+                    # Clean up text
+                    clean_text = text.strip().replace("\n", " ") if text else ""
+                    
+                    # Specific check for Amazon's Choice which might have empty text in container
+                    if "acBadge" in selector or "ac-badge" in selector:
+                         promo_detected = True
+                         details.append("Amazon's Choice detectado")
+                    elif "bestSeller" in selector:
+                         promo_detected = True
+                         details.append("Más vendido detectado")
+                    elif clean_text:
                         promo_detected = True
-                        details.append(f"Etiqueta detectada: {text.strip()}")
+                        details.append(f"Etiqueta: {clean_text[:50]}...")
 
-        # Check for Coupon Checkbox explicitly
-        coupon_checkbox = await page.query_selector("label:has-text('Apply coupon')")
-        if coupon_checkbox:
-             promo_detected = True
-             details.append("Cupón aplicable encontrado")
-        
         # --- 2. Check for Discount (Price strike-through or percentage off) ---
-        savings_selector = ".savingsPercentage"
-        savings_el = await page.query_selector(savings_selector)
-        if savings_el and await savings_el.is_visible():
-            savings_text = await savings_el.text_content()
-            if savings_text:
-                promo_detected = True
-                details.append(f"Descuento encontrado: {savings_text.strip()}")
         
-        # Strike-through price basis - STRICT CHECK
+        # Method A: Savings Percentage (Explicit XX% off)
+        savings_selectors = [
+            ".savingsPercentage",
+            ".a-size-large.a-color-price.savingPriceOverride", # Sometimes used
+            "span[class*='savingsPercentage']"
+        ]
+        
+        for sel in savings_selectors:
+            savings_el = await page.query_selector(sel)
+            if savings_el and await savings_el.is_visible():
+                savings_text = await savings_el.text_content()
+                if savings_text:
+                    promo_detected = True
+                    details.append(f"Descuento explícito: {savings_text.strip()}")
+        
+        # Method B: Strike-through price structure (Precio anterior vs Actual)
+        # Search in core price block
         core_price_div = await page.query_selector("#corePrice_feature_div")
         if core_price_div:
+            # Look for strict strike-through data attribute
             basis_el = await core_price_div.query_selector(".a-text-price[data-a-strike='true'] span[aria-hidden='true']")
+            
+            # Fallback: Check for any text-price that looks like a strike-through
+            if not basis_el:
+                 basis_el = await core_price_div.query_selector(".a-text-price span.a-offscreen")
+            
             if basis_el:
                  basis_text = await basis_el.text_content()
-                 if basis_text:
+                 if basis_text and basis_text.strip() != current_price: # Ensure it's different from current price
                     promo_detected = True
-                    details.append(f"Precio tachado visible: {basis_text.strip()}")
+                    details.append(f"Precio tachado (Anterior): {basis_text.strip()}")
 
         unique_details = "; ".join(sorted(list(set(details))))
         

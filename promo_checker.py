@@ -72,22 +72,42 @@ async def check_promotion(page, url):
         details = []
         current_price = "Not Found" # Translated
         
-        # --- 0. EXTRACT CURRENT PRICE ---
+        # --- 0. EXTRACT CURRENT PRICE (Selling Price) ---
+        # Priority: Look for ".priceToPay" first, as this is the actual active price
         price_selectors = [
-            "#corePrice_feature_div .a-price .a-offscreen",
-            "#corePriceDisplay_desktop_feature_div .a-price .a-offscreen",
-            "#apex_desktop .a-price .a-offscreen",
+            ".priceToPay .a-offscreen",                 # Most accurate for deals
+            ".priceToPay span[aria-hidden='true']",     # Backup
+            "#corePrice_feature_div .a-price.priceToPay .a-offscreen",
+            "#corePriceDisplay_desktop_feature_div .a-price.priceToPay .a-offscreen",
+            
+            # Fallbacks (General)
+            "#corePrice_feature_div .a-price .a-offscreen", 
             ".a-price.a-text-price.a-size-medium .a-offscreen",
             ".a-price .a-offscreen"
         ]
         
+        found_prices = []
         for selector in price_selectors:
-            price_el = await page.query_selector(selector)
-            if price_el and await price_el.is_visible():
-                price_text = await price_el.text_content()
-                if price_text:
-                    current_price = price_text.strip()
-                    break 
+            elements = await page.query_selector_all(selector)
+            for el in elements:
+                if await el.is_visible():
+                    text = await el.text_content()
+                    if text:
+                        clean_val = text.strip()
+                        # Avoid saving empty strings or non-price text
+                        if any(c.isdigit() for c in clean_val):
+                            found_prices.append(clean_val)
+            
+            # If we found matches with high-priority selectors (priceToPay), stop there
+            if found_prices and "priceToPay" in selector:
+                break
+        
+        # Logic: properly determine which is current vs normal if multiple found
+        # Usually checking the first valid one found by priority selectors is enough
+        if found_prices:
+            current_price = found_prices[0] # Take the best match
+        else:
+            current_price = "Not Found" 
         
         # --- 1. Check for deal badges ---
         deal_selectors = [

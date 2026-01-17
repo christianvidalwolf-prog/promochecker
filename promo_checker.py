@@ -1,7 +1,37 @@
 import asyncio
 import random
 import pandas as pd
+import os
+import sys
 from playwright.async_api import async_playwright
+
+# Install Playwright browsers if not already installed
+def ensure_playwright_browsers():
+    """Ensure Playwright browsers are installed (for cloud deployment)"""
+    try:
+        # Check if we're in a cloud environment
+        if os.path.exists('/home/appuser'):  # Streamlit Cloud
+            print("Checking for Playwright browsers...")
+            import subprocess
+            result = subprocess.run(
+                [sys.executable, "-m", "playwright", "install", "chromium"],
+                capture_output=True,
+                text=True
+            )
+            if result.returncode == 0:
+                print("✅ Playwright Chromium installed successfully")
+            else:
+                print(f"⚠️ Playwright install output: {result.stdout}")
+                # Try with --with-deps
+                subprocess.run(
+                    [sys.executable, "-m", "playwright", "install", "--with-deps", "chromium"],
+                    check=False
+                )
+    except Exception as e:
+        print(f"Warning: Could not auto-install Playwright browsers: {e}")
+
+# Run installation check on module import
+ensure_playwright_browsers()
 
 # Constants
 INPUT_FILE = "productos.xlsx"

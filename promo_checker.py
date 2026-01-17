@@ -173,63 +173,84 @@ async def check_promotion(page, url):
             except:
                 return 0.0
 
-        current_price_val = parse_price(current_price)
-
-        # --- 2. Check for Discount & Values ---
-        normal_price = "N/A"
-        discount_label = "N/A"
+        # --- SMART PRICE ANALYSIS ---
+        # Instead of trusting specific selectors, we gather ALL prices in the main block
+        # and use logic: Lowest = Price to Pay, Highest = List/Old Price.
         
-        # A. Detect Percentage Loop (Smart Search)
-        # Look for any element containing "%" or "-" nearby price block
-        try:
-            potential_discounts = await page.query_selector_all("span:has-text('%'), div:has-text('%')")
-            for el in potential_discounts:
+        found_prices = []
+        raw_price_map = {} # Map float val -> string representation
+        
+        # Broad scan for any price container in the buy box area
+        price_containers = [
+             "#corePrice_feature_div .a-price .a-offscreen",
+             "#corePriceDisplay_desktop_feature_div .a-price .a-offscreen",
+             "#apex_desktop .a-price .a-offscreen",
+             ".a-price .a-offscreen", # Generic fallback
+             ".a-text-price span[aria-hidden='true']" # Strike-through text often here
+        ]
+        
+        for selector in price_containers:
+            elements = await page.query_selector_all(selector)
+            for el in elements:
                 if await el.is_visible():
                     text = await el.text_content()
-                    if text and ("%" in text) and ("-" in text or "off" in text.lower() or "menos" in text.lower()):
-                         if len(text.strip()) < 10: # Keep it short ("-25%")
-                            discount_label = text.strip()
+                    if text:
+                        cleaned_text = text.strip()
+                        val = parse_price(cleaned_text)
+                        if val > 0:
+                            found_prices.append(val)
+                            if val not in raw_price_map:
+                                raw_price_map[val] = cleaned_text
+
+        # Determine Prices based on Values
+        current_price_val = 0.0
+        normal_price_val = 0.0
+        
+        current_price = "Not Found"
+        normal_price = "N/A"
+        discount_label = "N/A"
+
+        if found_prices:
+            # Sort unique prices
+            unique_prices = sorted(list(set(found_prices)))
+            
+            # The lowest price is ALWAYS the current selling price
+            current_price_val = unique_prices[0]
+            current_price = raw_price_map[current_price_val]
+            
+            # If we have multiple prices, the highest is likely the list price
+            if len(unique_prices) > 1:
+                potential_normal = unique_prices[-1]
+                # Only accept if it's at least 2% higher to avoid currency glitch
+                if potential_normal > current_price_val * 1.02:
+                    normal_price_val = potential_normal
+                    normal_price = raw_price_map[normal_price_val]
+                    promo_detected = True
+                    details.append(f"Price Drop: {normal_price} -> {current_price}")
+                    
+                    # Calculate discount manually if not found later
+                    calc_discount = int(((normal_price_val - current_price_val) / normal_price_val) * 100)
+                    if discount_label == "N/A":
+                        discount_label = f"-{calc_discount}%"
+
+        # --- Discount Badges (Text Confirmation) ---
+        # Look for explicit percentage badges to double check
+        try:
+            potential_discounts = await page.query_selector_all("span.savingsPercentage, span.a-size-large.a-color-price, div:has-text('%')")
+            for el in potential_discounts:
+                 if await el.is_visible():
+                    text = await el.text_content()
+                    if text and "%" in text and ("-" in text or "off" in text.lower()):
+                        clean_disc = text.strip()
+                        # Update discount label if we found a visual badge (often more reliable than calc)
+                        if len(clean_disc) < 15: # Safety check
+                            discount_label = clean_disc
                             promo_detected = True
-                            details.append(f"Discount Found: {discount_label}")
+                            if "Discount Found" not in str(details):
+                                details.append(f"Discount Badge: {discount_label}")
                             break
         except:
-             pass
-
-        # Use specific selector fallback if smart search failed
-        if discount_label == "N/A":
-            savings_selectors = [
-                ".savingsPercentage",
-                ".savingPriceOverride",
-                "span[class*='savingsPercentage']"
-            ]
-            for sel in savings_selectors:
-                el = await page.query_selector(sel)
-                if el and await el.is_visible():
-                    text = await el.text_content()
-                    if text:
-                        discount_label = text.strip()
-                        promo_detected = True
-                        details.append(f"Explicit Discount: {discount_label}")
-                        break
-
-        # B. Check for Normal Price (Strike-Through) - NUMERIC COMPARISON APPROACH
-        core_price_div = await page.query_selector("#corePrice_feature_div")
-        if core_price_div:
-            # Get all price-like text elements in the price block
-            price_candidates = await core_price_div.query_selector_all(".a-text-price span[aria-hidden='true'], .a-text-price span.a-offscreen, span.a-price.a-text-price")
-            
-            for el in price_candidates:
-                candidate_text = await el.text_content()
-                if candidate_text:
-                    candidate_clean = candidate_text.strip()
-                    candidate_val = parse_price(candidate_clean)
-                    
-                    # Logic: If we found a price that is greater than current price (with some margin)
-                    if candidate_val > current_price_val * 1.02: # at least 2% higher
-                        normal_price = candidate_clean
-                        promo_detected = True
-                        details.append(f"Strike-through Price (Old): {normal_price}")
-                        break # Found the higher price
+            pass
 
         unique_details = "; ".join(sorted(list(set(details))))
         

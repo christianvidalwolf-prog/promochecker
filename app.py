@@ -118,7 +118,17 @@ Esta aplicación verifica automáticamente si los productos de Amazon tienen pro
 
 # Sidebar settings
 st.sidebar.header("Configuración")
-headless = st.sidebar.checkbox("Modo Oculto (Headless)", value=False, help="Si se desactiva, verás el navegador abriéndose y navegando.")
+
+# Auto-detect if we're running in a cloud environment (Streamlit Cloud has no display)
+import os
+is_cloud = os.path.exists('/home/appuser')  # Streamlit Cloud path
+
+if is_cloud:
+    st.sidebar.info("🌐 Ejecutando en la nube - Modo headless está activado automáticamente")
+    headless = True
+else:
+    headless = st.sidebar.checkbox("Modo Oculto (Headless)", value=False, help="Si se desactiva, verás el navegador abriéndose y navegando.")
+
 
 uploaded_file = st.file_uploader("Cargar archivo Excel (.xlsx) o CSV (.csv)", type=["xlsx", "csv"])
 
